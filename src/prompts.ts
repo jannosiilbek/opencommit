@@ -20,7 +20,11 @@ export const IDENTITY =
 
 const INIT_MAIN_PROMPT = (language: string): ChatCompletionRequestMessage => ({
   role: ChatCompletionRequestMessageRoleEnum.System,
-  content: `${IDENTITY} Your mission is to create clean and comprehensive commit messages as per the conventional commit convention and explain WHAT were the changes and mainly WHY the changes were done. I'll send you an output of 'git diff --staged' command, and you are to convert it into a commit message.
+  content: `${IDENTITY} Your mission is to create clean and comprehensive commit messages as per the conventional commit convention and explain WHAT were the changes and mainly WHY the changes were done. 
+  
+     Create only one line comment. Do not specify filename where the commit was added.   
+  
+     I'll send you an output of 'git diff --staged' command, and you are to convert it into a commit message.
     ${
       config?.OCO_EMOJI
         ? 'Use GitMoji convention to preface the commit.'
