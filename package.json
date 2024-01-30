@@ -20,7 +20,7 @@
     "oco": "./out/cli.cjs"
   },
   "repository": {
-    "url": "https://github.com/di-sukharev/opencommit"
+    "url": "https://github.com/jannosiilbek/opencommit"
   },
   "type": "module",
   "author": "https://github.com/di-sukharev",
