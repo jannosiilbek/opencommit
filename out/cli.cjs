@@ -9,6 +9,10 @@ var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
+var __export = (target, all3) => {
+  for (var name in all3)
+    __defProp(target, name, { get: all3[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -1311,7 +1315,7 @@ var require_cookies = __commonJS({
   "node_modules/openai/node_modules/axios/lib/helpers/cookies.js"(exports, module2) {
     "use strict";
     var utils = require_utils();
-    module2.exports = utils.isStandardBrowserEnv() ? function standardBrowserEnv3() {
+    module2.exports = utils.isStandardBrowserEnv() ? function standardBrowserEnv2() {
       return {
         write: function write(name, value, expires, path5, domain, secure) {
           var cookie = [];
@@ -1338,7 +1342,7 @@ var require_cookies = __commonJS({
           this.write(name, "", Date.now() - 864e5);
         }
       };
-    }() : function nonStandardBrowserEnv3() {
+    }() : function nonStandardBrowserEnv2() {
       return {
         write: function write() {
         },
@@ -1444,7 +1448,7 @@ var require_isURLSameOrigin = __commonJS({
   "node_modules/openai/node_modules/axios/lib/helpers/isURLSameOrigin.js"(exports, module2) {
     "use strict";
     var utils = require_utils();
-    module2.exports = utils.isStandardBrowserEnv() ? function standardBrowserEnv3() {
+    module2.exports = utils.isStandardBrowserEnv() ? function standardBrowserEnv2() {
       var msie = /(msie|trident)/i.test(navigator.userAgent);
       var urlParsingNode = document.createElement("a");
       var originURL;
@@ -1471,7 +1475,7 @@ var require_isURLSameOrigin = __commonJS({
         var parsed = utils.isString(requestURL) ? resolveURL(requestURL) : requestURL;
         return parsed.protocol === originURL.protocol && parsed.host === originURL.host;
       };
-    }() : function nonStandardBrowserEnv3() {
+    }() : function nonStandardBrowserEnv2() {
       return function isURLSameOrigin() {
         return true;
       };
@@ -2419,6 +2423,25 @@ var require_follow_redirects = __commonJS({
     var Writable = require("stream").Writable;
     var assert = require("assert");
     var debug = require_debug();
+    var useNativeURL = false;
+    try {
+      assert(new URL2());
+    } catch (error) {
+      useNativeURL = error.code === "ERR_INVALID_URL";
+    }
+    var preservedUrlFields = [
+      "auth",
+      "host",
+      "hostname",
+      "href",
+      "path",
+      "pathname",
+      "port",
+      "protocol",
+      "query",
+      "search",
+      "hash"
+    ];
     var events = ["abort", "aborted", "connect", "error", "socket", "timeout"];
     var eventHandlers = /* @__PURE__ */ Object.create(null);
     events.forEach(function(event) {
@@ -2437,7 +2460,8 @@ var require_follow_redirects = __commonJS({
     );
     var TooManyRedirectsError = createErrorType(
       "ERR_FR_TOO_MANY_REDIRECTS",
-      "Maximum number of redirects exceeded"
+      "Maximum number of redirects exceeded",
+      RedirectionError
     );
     var MaxBodyLengthExceededError = createErrorType(
       "ERR_FR_MAX_BODY_LENGTH_EXCEEDED",
@@ -2447,6 +2471,7 @@ var require_follow_redirects = __commonJS({
       "ERR_STREAM_WRITE_AFTER_END",
       "write after end"
     );
+    var destroy = Writable.prototype.destroy || noop2;
     function RedirectableRequest(options, responseCallback) {
       Writable.call(this);
       this._sanitizeOptions(options);
@@ -2462,14 +2487,24 @@ var require_follow_redirects = __commonJS({
       }
       var self2 = this;
       this._onNativeResponse = function(response) {
-        self2._processResponse(response);
+        try {
+          self2._processResponse(response);
+        } catch (cause) {
+          self2.emit("error", cause instanceof RedirectionError ? cause : new RedirectionError({ cause }));
+        }
       };
       this._performRequest();
     }
     RedirectableRequest.prototype = Object.create(Writable.prototype);
     RedirectableRequest.prototype.abort = function() {
-      abortRequest(this._currentRequest);
+      destroyRequest(this._currentRequest);
+      this._currentRequest.abort();
       this.emit("abort");
+    };
+    RedirectableRequest.prototype.destroy = function(error) {
+      destroyRequest(this._currentRequest, error);
+      destroy.call(this, error);
+      return this;
     };
     RedirectableRequest.prototype.write = function(data, encoding, callback) {
       if (this._ending) {
@@ -2551,6 +2586,7 @@ var require_follow_redirects = __commonJS({
         self2.removeListener("abort", clearTimer);
         self2.removeListener("error", clearTimer);
         self2.removeListener("response", clearTimer);
+        self2.removeListener("close", clearTimer);
         if (callback) {
           self2.removeListener("timeout", callback);
         }
@@ -2570,6 +2606,7 @@ var require_follow_redirects = __commonJS({
       this.on("abort", clearTimer);
       this.on("error", clearTimer);
       this.on("response", clearTimer);
+      this.on("close", clearTimer);
       return this;
     };
     [
@@ -2613,8 +2650,7 @@ var require_follow_redirects = __commonJS({
       var protocol = this._options.protocol;
       var nativeProtocol = this._options.nativeProtocols[protocol];
       if (!nativeProtocol) {
-        this.emit("error", new TypeError("Unsupported protocol " + protocol));
-        return;
+        throw new TypeError("Unsupported protocol " + protocol);
       }
       if (this._options.agents) {
         var scheme = protocol.slice(0, -1);
@@ -2663,11 +2699,10 @@ var require_follow_redirects = __commonJS({
         this._requestBodyBuffers = [];
         return;
       }
-      abortRequest(this._currentRequest);
+      destroyRequest(this._currentRequest);
       response.destroy();
       if (++this._redirectCount > this._options.maxRedirects) {
-        this.emit("error", new TooManyRedirectsError());
-        return;
+        throw new TooManyRedirectsError();
       }
       var requestHeaders;
       var beforeRedirect = this._options.beforeRedirect;
@@ -2683,21 +2718,14 @@ var require_follow_redirects = __commonJS({
         removeMatchingHeaders(/^content-/i, this._options.headers);
       }
       var currentHostHeader = removeMatchingHeaders(/^host$/i, this._options.headers);
-      var currentUrlParts = url3.parse(this._currentUrl);
+      var currentUrlParts = parseUrl(this._currentUrl);
       var currentHost = currentHostHeader || currentUrlParts.host;
       var currentUrl = /^\w+:/.test(location) ? this._currentUrl : url3.format(Object.assign(currentUrlParts, { host: currentHost }));
-      var redirectUrl;
-      try {
-        redirectUrl = url3.resolve(currentUrl, location);
-      } catch (cause) {
-        this.emit("error", new RedirectionError({ cause }));
-        return;
-      }
-      debug("redirecting to", redirectUrl);
+      var redirectUrl = resolveUrl(location, currentUrl);
+      debug("redirecting to", redirectUrl.href);
       this._isRedirect = true;
-      var redirectUrlParts = url3.parse(redirectUrl);
-      Object.assign(this._options, redirectUrlParts);
-      if (redirectUrlParts.protocol !== currentUrlParts.protocol && redirectUrlParts.protocol !== "https:" || redirectUrlParts.host !== currentHost && !isSubdomain(redirectUrlParts.host, currentHost)) {
+      spreadUrlObject(redirectUrl, this._options);
+      if (redirectUrl.protocol !== currentUrlParts.protocol && redirectUrl.protocol !== "https:" || redirectUrl.host !== currentHost && !isSubdomain(redirectUrl.host, currentHost)) {
         removeMatchingHeaders(/^(?:authorization|cookie)$/i, this._options.headers);
       }
       if (isFunction2(beforeRedirect)) {
@@ -2710,19 +2738,10 @@ var require_follow_redirects = __commonJS({
           method,
           headers: requestHeaders
         };
-        try {
-          beforeRedirect(this._options, responseDetails, requestDetails);
-        } catch (err) {
-          this.emit("error", err);
-          return;
-        }
+        beforeRedirect(this._options, responseDetails, requestDetails);
         this._sanitizeOptions(this._options);
       }
-      try {
-        this._performRequest();
-      } catch (cause) {
-        this.emit("error", new RedirectionError({ cause }));
-      }
+      this._performRequest();
     };
     function wrap(protocols) {
       var exports2 = {
@@ -2735,22 +2754,13 @@ var require_follow_redirects = __commonJS({
         var nativeProtocol = nativeProtocols[protocol] = protocols[scheme];
         var wrappedProtocol = exports2[scheme] = Object.create(nativeProtocol);
         function request(input, options, callback) {
-          if (isString2(input)) {
-            var parsed;
-            try {
-              parsed = urlToOptions(new URL2(input));
-            } catch (err) {
-              parsed = url3.parse(input);
-            }
-            if (!isString2(parsed.protocol)) {
-              throw new InvalidUrlError({ input });
-            }
-            input = parsed;
-          } else if (URL2 && input instanceof URL2) {
-            input = urlToOptions(input);
+          if (isURL(input)) {
+            input = spreadUrlObject(input);
+          } else if (isString2(input)) {
+            input = spreadUrlObject(parseUrl(input));
           } else {
             callback = options;
-            options = input;
+            options = validateUrl(input);
             input = { protocol };
           }
           if (isFunction2(options)) {
@@ -2783,20 +2793,43 @@ var require_follow_redirects = __commonJS({
     }
     function noop2() {
     }
-    function urlToOptions(urlObject) {
-      var options = {
-        protocol: urlObject.protocol,
-        hostname: urlObject.hostname.startsWith("[") ? urlObject.hostname.slice(1, -1) : urlObject.hostname,
-        hash: urlObject.hash,
-        search: urlObject.search,
-        pathname: urlObject.pathname,
-        path: urlObject.pathname + urlObject.search,
-        href: urlObject.href
-      };
-      if (urlObject.port !== "") {
-        options.port = Number(urlObject.port);
+    function parseUrl(input) {
+      var parsed;
+      if (useNativeURL) {
+        parsed = new URL2(input);
+      } else {
+        parsed = validateUrl(url3.parse(input));
+        if (!isString2(parsed.protocol)) {
+          throw new InvalidUrlError({ input });
+        }
       }
-      return options;
+      return parsed;
+    }
+    function resolveUrl(relative, base) {
+      return useNativeURL ? new URL2(relative, base) : parseUrl(url3.resolve(base, relative));
+    }
+    function validateUrl(input) {
+      if (/^\[/.test(input.hostname) && !/^\[[:0-9a-f]+\]$/i.test(input.hostname)) {
+        throw new InvalidUrlError({ input: input.href || input });
+      }
+      if (/^\[/.test(input.host) && !/^\[[:0-9a-f]+\](:\d+)?$/i.test(input.host)) {
+        throw new InvalidUrlError({ input: input.href || input });
+      }
+      return input;
+    }
+    function spreadUrlObject(urlObject, target) {
+      var spread3 = target || {};
+      for (var key of preservedUrlFields) {
+        spread3[key] = urlObject[key];
+      }
+      if (spread3.hostname.startsWith("[")) {
+        spread3.hostname = spread3.hostname.slice(1, -1);
+      }
+      if (spread3.port !== "") {
+        spread3.port = Number(spread3.port);
+      }
+      spread3.path = spread3.search ? spread3.pathname + spread3.search : spread3.pathname;
+      return spread3;
     }
     function removeMatchingHeaders(regex, headers) {
       var lastValue;
@@ -2816,16 +2849,24 @@ var require_follow_redirects = __commonJS({
         this.message = this.cause ? message + ": " + this.cause.message : message;
       }
       CustomError.prototype = new (baseClass || Error)();
-      CustomError.prototype.constructor = CustomError;
-      CustomError.prototype.name = "Error [" + code + "]";
+      Object.defineProperties(CustomError.prototype, {
+        constructor: {
+          value: CustomError,
+          enumerable: false
+        },
+        name: {
+          value: "Error [" + code + "]",
+          enumerable: false
+        }
+      });
       return CustomError;
     }
-    function abortRequest(request) {
+    function destroyRequest(request, error) {
       for (var event of events) {
         request.removeListener(event, eventHandlers[event]);
       }
       request.on("error", noop2);
-      request.abort();
+      request.destroy(error);
     }
     function isSubdomain(subdomain, domain) {
       assert(isString2(subdomain) && isString2(domain));
@@ -2840,6 +2881,9 @@ var require_follow_redirects = __commonJS({
     }
     function isBuffer2(value) {
       return typeof value === "object" && "length" in value;
+    }
+    function isURL(value) {
+      return URL2 && value instanceof URL2;
     }
     module2.exports = wrap({ http: http2, https: https2 });
     module2.exports.wrap = wrap;
@@ -3187,7 +3231,7 @@ var require_defaults = __commonJS({
     var normalizeHeaderName = require_normalizeHeaderName();
     var enhanceError = require_enhanceError();
     var transitionalDefaults = require_transitional();
-    var DEFAULT_CONTENT_TYPE2 = {
+    var DEFAULT_CONTENT_TYPE = {
       "Content-Type": "application/x-www-form-urlencoded"
     };
     function setContentTypeIfUnset(headers, value) {
@@ -3272,11 +3316,11 @@ var require_defaults = __commonJS({
         }
       }
     };
-    utils.forEach(["delete", "get", "head"], function forEachMethodNoData3(method) {
+    utils.forEach(["delete", "get", "head"], function forEachMethodNoData2(method) {
       defaults2.headers[method] = {};
     });
-    utils.forEach(["post", "put", "patch"], function forEachMethodWithData3(method) {
-      defaults2.headers[method] = utils.merge(DEFAULT_CONTENT_TYPE2);
+    utils.forEach(["post", "put", "patch"], function forEachMethodWithData2(method) {
+      defaults2.headers[method] = utils.merge(DEFAULT_CONTENT_TYPE);
     });
     module2.exports = defaults2;
   }
@@ -3606,7 +3650,7 @@ var require_Axios = __commonJS({
       config8 = mergeConfig3(this.defaults, config8);
       return buildURL2(config8.url, config8.params, config8.paramsSerializer).replace(/^\?/, "");
     };
-    utils.forEach(["delete", "get", "head", "options"], function forEachMethodNoData3(method) {
+    utils.forEach(["delete", "get", "head", "options"], function forEachMethodNoData2(method) {
       Axios3.prototype[method] = function(url3, config8) {
         return this.request(mergeConfig3(config8 || {}, {
           method,
@@ -3615,7 +3659,7 @@ var require_Axios = __commonJS({
         }));
       };
     });
-    utils.forEach(["post", "put", "patch"], function forEachMethodWithData3(method) {
+    utils.forEach(["post", "put", "patch"], function forEachMethodWithData2(method) {
       Axios3.prototype[method] = function(url3, data, config8) {
         return this.request(mergeConfig3(config8 || {}, {
           method,
@@ -3958,12 +4002,14 @@ var require_api = __commonJS({
     exports.ChatCompletionRequestMessageRoleEnum = {
       System: "system",
       User: "user",
-      Assistant: "assistant"
+      Assistant: "assistant",
+      Function: "function"
     };
     exports.ChatCompletionResponseMessageRoleEnum = {
       System: "system",
       User: "user",
-      Assistant: "assistant"
+      Assistant: "assistant",
+      Function: "function"
     };
     exports.CreateImageRequestSizeEnum = {
       _256x256: "256x256",
@@ -4981,7 +5027,7 @@ var require_package = __commonJS({
   "node_modules/openai/package.json"(exports, module2) {
     module2.exports = {
       name: "openai",
-      version: "3.2.1",
+      version: "3.3.0",
       description: "Node.js library for the OpenAI API",
       repository: {
         type: "git",
@@ -16384,7 +16430,7 @@ function G3(t, e2) {
 // package.json
 var package_default = {
   name: "opencommit",
-  version: "3.0.4",
+  version: "3.0.5",
   description: "Auto-generate impressive commits in 1 second. Killing lame commits with AI \u{1F92F}\u{1F52B}",
   keywords: [
     "git",
@@ -16404,7 +16450,7 @@ var package_default = {
     oco: "./out/cli.cjs"
   },
   repository: {
-    url: "https://github.com/di-sukharev/opencommit"
+    url: "https://github.com/jannosiilbek/opencommit"
   },
   type: "module",
   author: "https://github.com/di-sukharev",
@@ -18485,8 +18531,8 @@ var isBlob = kindOfTest("Blob");
 var isFileList = kindOfTest("FileList");
 var isStream2 = (val) => isObject(val) && isFunction(val.pipe);
 var isFormData = (thing) => {
-  const pattern = "[object FormData]";
-  return thing && (typeof FormData === "function" && thing instanceof FormData || toString.call(thing) === pattern || isFunction(thing.toString) && thing.toString() === pattern);
+  let kind;
+  return thing && (typeof FormData === "function" && thing instanceof FormData || isFunction(thing.append) && ((kind = kindOf(thing)) === "formdata" || kind === "object" && isFunction(thing.toString) && thing.toString() === "[object FormData]"));
 };
 var isURLSearchParams = kindOfTest("URLSearchParams");
 var trim = (str) => str.trim ? str.trim() : str.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, "");
@@ -18658,8 +18704,9 @@ var reduceDescriptors = (obj, reducer) => {
   const descriptors3 = Object.getOwnPropertyDescriptors(obj);
   const reducedDescriptors = {};
   forEach(descriptors3, (descriptor, name) => {
-    if (reducer(descriptor, name, obj) !== false) {
-      reducedDescriptors[name] = descriptor;
+    let ret;
+    if ((ret = reducer(descriptor, name, obj)) !== false) {
+      reducedDescriptors[name] = ret || descriptor;
     }
   });
   Object.defineProperties(obj, reducedDescriptors);
@@ -18740,6 +18787,8 @@ var toJSONObject = (obj) => {
   };
   return visit(obj, 0);
 };
+var isAsyncFn = kindOfTest("AsyncFunction");
+var isThenable = (thing) => thing && (isObject(thing) || isFunction(thing)) && isFunction(thing.then) && isFunction(thing.catch);
 var utils_default = {
   isArray,
   isArrayBuffer,
@@ -18789,7 +18838,9 @@ var utils_default = {
   ALPHABET,
   generateString,
   isSpecCompliantForm,
-  toJSONObject
+  toJSONObject,
+  isAsyncFn,
+  isThenable
 };
 
 // node_modules/axios/lib/core/AxiosError.js
@@ -19092,11 +19143,32 @@ var node_default = {
   protocols: ["http", "https", "file", "data"]
 };
 
+// node_modules/axios/lib/platform/common/utils.js
+var utils_exports = {};
+__export(utils_exports, {
+  hasBrowserEnv: () => hasBrowserEnv,
+  hasStandardBrowserEnv: () => hasStandardBrowserEnv,
+  hasStandardBrowserWebWorkerEnv: () => hasStandardBrowserWebWorkerEnv
+});
+var hasBrowserEnv = typeof window !== "undefined" && typeof document !== "undefined";
+var hasStandardBrowserEnv = ((product) => {
+  return hasBrowserEnv && ["ReactNative", "NativeScript", "NS"].indexOf(product) < 0;
+})(typeof navigator !== "undefined" && navigator.product);
+var hasStandardBrowserWebWorkerEnv = (() => {
+  return typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope && typeof self.importScripts === "function";
+})();
+
+// node_modules/axios/lib/platform/index.js
+var platform_default = {
+  ...utils_exports,
+  ...node_default
+};
+
 // node_modules/axios/lib/helpers/toURLEncodedForm.js
 function toURLEncodedForm(data, options) {
-  return toFormData_default(data, new node_default.classes.URLSearchParams(), Object.assign({
+  return toFormData_default(data, new platform_default.classes.URLSearchParams(), Object.assign({
     visitor: function(value, key, path5, helpers) {
-      if (node_default.isNode && utils_default.isBuffer(value)) {
+      if (platform_default.isNode && utils_default.isBuffer(value)) {
         this.append(key, value.toString("base64"));
         return false;
       }
@@ -19126,6 +19198,8 @@ function arrayToObject(arr) {
 function formDataToJSON(formData) {
   function buildPath(path5, value, target, index) {
     let name = path5[index++];
+    if (name === "__proto__")
+      return true;
     const isNumericKey = Number.isFinite(+name);
     const isLast = index >= path5.length;
     name = !name && utils_default.isArray(target) ? target.length : name;
@@ -19158,9 +19232,6 @@ function formDataToJSON(formData) {
 var formDataToJSON_default = formDataToJSON;
 
 // node_modules/axios/lib/defaults/index.js
-var DEFAULT_CONTENT_TYPE = {
-  "Content-Type": void 0
-};
 function stringifySafely(rawValue, parser, encoder) {
   if (utils_default.isString(rawValue)) {
     try {
@@ -19186,9 +19257,6 @@ var defaults = {
     }
     const isFormData2 = utils_default.isFormData(data);
     if (isFormData2) {
-      if (!hasJSONContentType) {
-        return data;
-      }
       return hasJSONContentType ? JSON.stringify(formDataToJSON_default(data)) : data;
     }
     if (utils_default.isArrayBuffer(data) || utils_default.isBuffer(data) || utils_default.isStream(data) || utils_default.isFile(data) || utils_default.isBlob(data)) {
@@ -19247,23 +19315,21 @@ var defaults = {
   maxContentLength: -1,
   maxBodyLength: -1,
   env: {
-    FormData: node_default.classes.FormData,
-    Blob: node_default.classes.Blob
+    FormData: platform_default.classes.FormData,
+    Blob: platform_default.classes.Blob
   },
   validateStatus: function validateStatus(status) {
     return status >= 200 && status < 300;
   },
   headers: {
     common: {
-      "Accept": "application/json, text/plain, */*"
+      "Accept": "application/json, text/plain, */*",
+      "Content-Type": void 0
     }
   }
 };
-utils_default.forEach(["delete", "get", "head"], function forEachMethodNoData(method) {
+utils_default.forEach(["delete", "get", "head", "post", "put", "patch"], (method) => {
   defaults.headers[method] = {};
-});
-utils_default.forEach(["post", "put", "patch"], function forEachMethodWithData(method) {
-  defaults.headers[method] = utils_default.merge(DEFAULT_CONTENT_TYPE);
 });
 var defaults_default = defaults;
 
@@ -19332,9 +19398,7 @@ function parseTokens(str) {
   }
   return tokens;
 }
-function isValidHeaderName(str) {
-  return /^[-_a-zA-Z]+$/.test(str.trim());
-}
+var isValidHeaderName = (str) => /^[-_a-zA-Z0-9^`|~,!#$%&'*+.]+$/.test(str.trim());
 function matchHeaderValue(context, value, header, filter2, isHeaderNameFilter) {
   if (utils_default.isFunction(filter2)) {
     return filter2.call(this, value, header);
@@ -19520,7 +19584,15 @@ var AxiosHeaders = class {
   }
 };
 AxiosHeaders.accessor(["Content-Type", "Content-Length", "Accept", "Accept-Encoding", "User-Agent", "Authorization"]);
-utils_default.freezeMethods(AxiosHeaders.prototype);
+utils_default.reduceDescriptors(AxiosHeaders.prototype, ({ value }, key) => {
+  let mapped = key[0].toUpperCase() + key.slice(1);
+  return {
+    get: () => value,
+    set(headerValue) {
+      this[mapped] = headerValue;
+    }
+  };
+});
 utils_default.freezeMethods(AxiosHeaders);
 var AxiosHeaders_default = AxiosHeaders;
 
@@ -19575,7 +19647,7 @@ function isAbsoluteURL(url3) {
 
 // node_modules/axios/lib/helpers/combineURLs.js
 function combineURLs(baseURL, relativeURL) {
-  return relativeURL ? baseURL.replace(/\/+$/, "") + "/" + relativeURL.replace(/^\/+/, "") : baseURL;
+  return relativeURL ? baseURL.replace(/\/?\/$/, "") + "/" + relativeURL.replace(/^\/+/, "") : baseURL;
 }
 
 // node_modules/axios/lib/core/buildFullPath.js
@@ -19595,7 +19667,7 @@ var import_follow_redirects = __toESM(require_follow_redirects(), 1);
 var import_zlib = __toESM(require("zlib"), 1);
 
 // node_modules/axios/lib/env/data.js
-var VERSION = "1.3.4";
+var VERSION = "1.6.7";
 
 // node_modules/axios/lib/helpers/parseProtocol.js
 function parseProtocol(url3) {
@@ -19606,7 +19678,7 @@ function parseProtocol(url3) {
 // node_modules/axios/lib/helpers/fromDataURI.js
 var DATA_URL_PATTERN = /^(?:([^;]+);)?(?:[^;]+;)?(base64|),([\s\S]*)$/;
 function fromDataURI(uri, asBlob, options) {
-  const _Blob = options && options.Blob || node_default.classes.Blob;
+  const _Blob = options && options.Blob || platform_default.classes.Blob;
   const protocol = parseProtocol(uri);
   if (asBlob === void 0 && _Blob) {
     asBlob = true;
@@ -19973,6 +20045,21 @@ var ZlibHeaderTransformStream = class extends import_stream4.default.Transform {
 };
 var ZlibHeaderTransformStream_default = ZlibHeaderTransformStream;
 
+// node_modules/axios/lib/helpers/callbackify.js
+var callbackify = (fn, reducer) => {
+  return utils_default.isAsyncFn(fn) ? function(...args) {
+    const cb = args.pop();
+    fn.apply(this, args).then((value) => {
+      try {
+        reducer ? cb(null, ...reducer(value)) : cb(null, value);
+      } catch (err) {
+        cb(err);
+      }
+    }, cb);
+  } : fn;
+};
+var callbackify_default = callbackify;
+
 // node_modules/axios/lib/adapters/http.js
 var zlibOptions = {
   flush: import_zlib.default.constants.Z_SYNC_FLUSH,
@@ -19985,15 +20072,15 @@ var brotliOptions = {
 var isBrotliSupported = utils_default.isFunction(import_zlib.default.createBrotliDecompress);
 var { http: httpFollow, https: httpsFollow } = import_follow_redirects.default;
 var isHttps = /https:?/;
-var supportedProtocols = node_default.protocols.map((protocol) => {
+var supportedProtocols = platform_default.protocols.map((protocol) => {
   return protocol + ":";
 });
-function dispatchBeforeRedirect(options) {
+function dispatchBeforeRedirect(options, responseDetails) {
   if (options.beforeRedirects.proxy) {
     options.beforeRedirects.proxy(options);
   }
   if (options.beforeRedirects.config) {
-    options.beforeRedirects.config(options);
+    options.beforeRedirects.config(options, responseDetails);
   }
 }
 function setProxy(options, configProxy, location) {
@@ -20051,14 +20138,36 @@ var wrapAsync = (asyncExecutor) => {
     asyncExecutor(_resolve, _reject, (onDoneHandler) => onDone = onDoneHandler).catch(_reject);
   });
 };
+var resolveFamily = ({ address, family }) => {
+  if (!utils_default.isString(address)) {
+    throw TypeError("address must be a string");
+  }
+  return {
+    address,
+    family: family || (address.indexOf(".") < 0 ? 6 : 4)
+  };
+};
+var buildAddressEntry = (address, family) => resolveFamily(utils_default.isObject(address) ? address : { address, family });
 var http_default = isHttpAdapterSupported && function httpAdapter(config8) {
   return wrapAsync(async function dispatchHttpRequest(resolve, reject, onDone) {
-    let { data } = config8;
+    let { data, lookup, family } = config8;
     const { responseType, responseEncoding } = config8;
     const method = config8.method.toUpperCase();
     let isDone;
     let rejected = false;
     let req;
+    if (lookup) {
+      const _lookup = callbackify_default(lookup, (value) => utils_default.isArray(value) ? value : [value]);
+      lookup = (hostname, opt, cb) => {
+        _lookup(hostname, opt, (err, arg0, arg1) => {
+          if (err) {
+            return cb(err);
+          }
+          const addresses = utils_default.isArray(arg0) ? arg0.map((addr) => buildAddressEntry(addr)) : [buildAddressEntry(arg0, arg1)];
+          opt.all ? cb(err, addresses) : cb(err, addresses[0].address, addresses[0].family);
+        });
+      };
+    }
     const emitter = new import_events.default();
     const onFinished = () => {
       if (config8.cancelToken) {
@@ -20238,9 +20347,11 @@ var http_default = isHttpAdapterSupported && function httpAdapter(config8) {
       agents: { http: config8.httpAgent, https: config8.httpsAgent },
       auth,
       protocol,
+      family,
       beforeRedirect: dispatchBeforeRedirect,
       beforeRedirects: {}
     };
+    !utils_default.isUndefined(lookup) && (options.lookup = lookup);
     if (config8.socketPath) {
       options.socketPath = config8.socketPath;
     } else {
@@ -20295,7 +20406,7 @@ var http_default = isHttpAdapterSupported && function httpAdapter(config8) {
         if (method === "HEAD" || res.statusCode === 204) {
           delete res.headers["content-encoding"];
         }
-        switch (res.headers["content-encoding"]) {
+        switch ((res.headers["content-encoding"] || "").toLowerCase()) {
           case "gzip":
           case "x-gzip":
           case "compress":
@@ -20376,7 +20487,7 @@ var http_default = isHttpAdapterSupported && function httpAdapter(config8) {
             }
             response.data = responseData;
           } catch (err) {
-            reject(AxiosError_default.from(err, null, config8, response.request, response));
+            return reject(AxiosError_default.from(err, null, config8, response.request, response));
           }
           settle(resolve, reject, response);
         });
@@ -20400,7 +20511,7 @@ var http_default = isHttpAdapterSupported && function httpAdapter(config8) {
     });
     if (config8.timeout) {
       const timeout = parseInt(config8.timeout, 10);
-      if (isNaN(timeout)) {
+      if (Number.isNaN(timeout)) {
         reject(new AxiosError_default(
           "error trying to parse `config.timeout` to int",
           AxiosError_default.ERR_BAD_OPTION_VALUE,
@@ -20449,47 +20560,34 @@ var http_default = isHttpAdapterSupported && function httpAdapter(config8) {
 };
 
 // node_modules/axios/lib/helpers/cookies.js
-var cookies_default = node_default.isStandardBrowserEnv ? function standardBrowserEnv() {
-  return {
-    write: function write(name, value, expires, path5, domain, secure) {
-      const cookie = [];
-      cookie.push(name + "=" + encodeURIComponent(value));
-      if (utils_default.isNumber(expires)) {
-        cookie.push("expires=" + new Date(expires).toGMTString());
-      }
-      if (utils_default.isString(path5)) {
-        cookie.push("path=" + path5);
-      }
-      if (utils_default.isString(domain)) {
-        cookie.push("domain=" + domain);
-      }
-      if (secure === true) {
-        cookie.push("secure");
-      }
-      document.cookie = cookie.join("; ");
-    },
-    read: function read(name) {
-      const match = document.cookie.match(new RegExp("(^|;\\s*)(" + name + ")=([^;]*)"));
-      return match ? decodeURIComponent(match[3]) : null;
-    },
-    remove: function remove(name) {
-      this.write(name, "", Date.now() - 864e5);
-    }
-  };
-}() : function nonStandardBrowserEnv() {
-  return {
-    write: function write() {
-    },
-    read: function read() {
-      return null;
-    },
-    remove: function remove() {
-    }
-  };
-}();
+var cookies_default = platform_default.hasStandardBrowserEnv ? {
+  write(name, value, expires, path5, domain, secure) {
+    const cookie = [name + "=" + encodeURIComponent(value)];
+    utils_default.isNumber(expires) && cookie.push("expires=" + new Date(expires).toGMTString());
+    utils_default.isString(path5) && cookie.push("path=" + path5);
+    utils_default.isString(domain) && cookie.push("domain=" + domain);
+    secure === true && cookie.push("secure");
+    document.cookie = cookie.join("; ");
+  },
+  read(name) {
+    const match = document.cookie.match(new RegExp("(^|;\\s*)(" + name + ")=([^;]*)"));
+    return match ? decodeURIComponent(match[3]) : null;
+  },
+  remove(name) {
+    this.write(name, "", Date.now() - 864e5);
+  }
+} : {
+  write() {
+  },
+  read() {
+    return null;
+  },
+  remove() {
+  }
+};
 
 // node_modules/axios/lib/helpers/isURLSameOrigin.js
-var isURLSameOrigin_default = node_default.isStandardBrowserEnv ? function standardBrowserEnv2() {
+var isURLSameOrigin_default = platform_default.hasStandardBrowserEnv ? function standardBrowserEnv() {
   const msie = /(msie|trident)/i.test(navigator.userAgent);
   const urlParsingNode = document.createElement("a");
   let originURL;
@@ -20516,7 +20614,7 @@ var isURLSameOrigin_default = node_default.isStandardBrowserEnv ? function stand
     const parsed = utils_default.isString(requestURL) ? resolveURL(requestURL) : requestURL;
     return parsed.protocol === originURL.protocol && parsed.host === originURL.host;
   };
-}() : function nonStandardBrowserEnv2() {
+}() : function nonStandardBrowserEnv() {
   return function isURLSameOrigin() {
     return true;
   };
@@ -20551,7 +20649,7 @@ var xhr_default = isXHRAdapterSupported && function(config8) {
   return new Promise(function dispatchXhrRequest(resolve, reject) {
     let requestData = config8.data;
     const requestHeaders = AxiosHeaders_default.from(config8.headers).normalize();
-    const responseType = config8.responseType;
+    let { responseType, withXSRFToken } = config8;
     let onCanceled;
     function done() {
       if (config8.cancelToken) {
@@ -20561,8 +20659,14 @@ var xhr_default = isXHRAdapterSupported && function(config8) {
         config8.signal.removeEventListener("abort", onCanceled);
       }
     }
-    if (utils_default.isFormData(requestData) && (node_default.isStandardBrowserEnv || node_default.isStandardBrowserWebWorkerEnv)) {
-      requestHeaders.setContentType(false);
+    let contentType;
+    if (utils_default.isFormData(requestData)) {
+      if (platform_default.hasStandardBrowserEnv || platform_default.hasStandardBrowserWebWorkerEnv) {
+        requestHeaders.setContentType(false);
+      } else if ((contentType = requestHeaders.getContentType()) !== false) {
+        const [type, ...tokens] = contentType ? contentType.split(";").map((token) => token.trim()).filter(Boolean) : [];
+        requestHeaders.setContentType([type || "multipart/form-data", ...tokens].join("; "));
+      }
     }
     let request = new XMLHttpRequest();
     if (config8.auth) {
@@ -20636,10 +20740,13 @@ var xhr_default = isXHRAdapterSupported && function(config8) {
       ));
       request = null;
     };
-    if (node_default.isStandardBrowserEnv) {
-      const xsrfValue = (config8.withCredentials || isURLSameOrigin_default(fullPath)) && config8.xsrfCookieName && cookies_default.read(config8.xsrfCookieName);
-      if (xsrfValue) {
-        requestHeaders.set(config8.xsrfHeaderName, xsrfValue);
+    if (platform_default.hasStandardBrowserEnv) {
+      withXSRFToken && utils_default.isFunction(withXSRFToken) && (withXSRFToken = withXSRFToken(config8));
+      if (withXSRFToken || withXSRFToken !== false && isURLSameOrigin_default(fullPath)) {
+        const xsrfValue = config8.xsrfHeaderName && config8.xsrfCookieName && cookies_default.read(config8.xsrfCookieName);
+        if (xsrfValue) {
+          requestHeaders.set(config8.xsrfHeaderName, xsrfValue);
+        }
       }
     }
     requestData === void 0 && requestHeaders.setContentType(null);
@@ -20675,7 +20782,7 @@ var xhr_default = isXHRAdapterSupported && function(config8) {
       }
     }
     const protocol = parseProtocol(fullPath);
-    if (protocol && node_default.protocols.indexOf(protocol) === -1) {
+    if (protocol && platform_default.protocols.indexOf(protocol) === -1) {
       reject(new AxiosError_default("Unsupported protocol " + protocol + ":", AxiosError_default.ERR_BAD_REQUEST, config8));
       return;
     }
@@ -20697,31 +20804,39 @@ utils_default.forEach(knownAdapters, (fn, value) => {
     Object.defineProperty(fn, "adapterName", { value });
   }
 });
+var renderReason = (reason) => `- ${reason}`;
+var isResolvedHandle = (adapter) => utils_default.isFunction(adapter) || adapter === null || adapter === false;
 var adapters_default = {
   getAdapter: (adapters) => {
     adapters = utils_default.isArray(adapters) ? adapters : [adapters];
     const { length } = adapters;
     let nameOrAdapter;
     let adapter;
+    const rejectedReasons = {};
     for (let i2 = 0; i2 < length; i2++) {
       nameOrAdapter = adapters[i2];
-      if (adapter = utils_default.isString(nameOrAdapter) ? knownAdapters[nameOrAdapter.toLowerCase()] : nameOrAdapter) {
+      let id;
+      adapter = nameOrAdapter;
+      if (!isResolvedHandle(nameOrAdapter)) {
+        adapter = knownAdapters[(id = String(nameOrAdapter)).toLowerCase()];
+        if (adapter === void 0) {
+          throw new AxiosError_default(`Unknown adapter '${id}'`);
+        }
+      }
+      if (adapter) {
         break;
       }
+      rejectedReasons[id || "#" + i2] = adapter;
     }
     if (!adapter) {
-      if (adapter === false) {
-        throw new AxiosError_default(
-          `Adapter ${nameOrAdapter} is not supported by the environment`,
-          "ERR_NOT_SUPPORT"
-        );
-      }
-      throw new Error(
-        utils_default.hasOwnProp(knownAdapters, nameOrAdapter) ? `Adapter '${nameOrAdapter}' is not available in the build` : `Unknown adapter '${nameOrAdapter}'`
+      const reasons = Object.entries(rejectedReasons).map(
+        ([id, state]) => `adapter ${id} ` + (state === false ? "is not supported by the environment" : "is not available in the build")
       );
-    }
-    if (!utils_default.isFunction(adapter)) {
-      throw new TypeError("adapter is not a function");
+      let s = length ? reasons.length > 1 ? "since :\n" + reasons.map(renderReason).join("\n") : " " + renderReason(reasons[0]) : "as no adapter specified";
+      throw new AxiosError_default(
+        `There is no suitable adapter to dispatch the request ` + s,
+        "ERR_NOT_SUPPORT"
+      );
     }
     return adapter;
   },
@@ -20825,6 +20940,7 @@ function mergeConfig(config1, config22) {
     timeout: defaultToConfig2,
     timeoutMessage: defaultToConfig2,
     withCredentials: defaultToConfig2,
+    withXSRFToken: defaultToConfig2,
     adapter: defaultToConfig2,
     responseType: defaultToConfig2,
     xsrfCookieName: defaultToConfig2,
@@ -20844,7 +20960,7 @@ function mergeConfig(config1, config22) {
     validateStatus: mergeDirectKeys,
     headers: (a2, b6) => mergeDeepProperties(headersToObject(a2), headersToObject(b6), true)
   };
-  utils_default.forEach(Object.keys(config1).concat(Object.keys(config22)), function computeConfigValue(prop) {
+  utils_default.forEach(Object.keys(Object.assign({}, config1, config22)), function computeConfigValue(prop) {
     const merge2 = mergeMap[prop] || mergeDeepProperties;
     const configValue = merge2(config1[prop], config22[prop], prop);
     utils_default.isUndefined(configValue) && merge2 !== mergeDirectKeys || (config8[prop] = configValue);
@@ -20920,7 +21036,24 @@ var Axios = class {
       response: new InterceptorManager_default()
     };
   }
-  request(configOrUrl, config8) {
+  async request(configOrUrl, config8) {
+    try {
+      return await this._request(configOrUrl, config8);
+    } catch (err) {
+      if (err instanceof Error) {
+        let dummy;
+        Error.captureStackTrace ? Error.captureStackTrace(dummy = {}) : dummy = new Error();
+        const stack = dummy.stack ? dummy.stack.replace(/^.+\n/, "") : "";
+        if (!err.stack) {
+          err.stack = stack;
+        } else if (stack && !String(err.stack).endsWith(stack.replace(/^.+\n.+\n/, ""))) {
+          err.stack += "\n" + stack;
+        }
+      }
+      throw err;
+    }
+  }
+  _request(configOrUrl, config8) {
     if (typeof configOrUrl === "string") {
       config8 = config8 || {};
       config8.url = configOrUrl;
@@ -20936,19 +21069,24 @@ var Axios = class {
         clarifyTimeoutError: validators2.transitional(validators2.boolean)
       }, false);
     }
-    if (paramsSerializer !== void 0) {
-      validator_default.assertOptions(paramsSerializer, {
-        encode: validators2.function,
-        serialize: validators2.function
-      }, true);
+    if (paramsSerializer != null) {
+      if (utils_default.isFunction(paramsSerializer)) {
+        config8.paramsSerializer = {
+          serialize: paramsSerializer
+        };
+      } else {
+        validator_default.assertOptions(paramsSerializer, {
+          encode: validators2.function,
+          serialize: validators2.function
+        }, true);
+      }
     }
     config8.method = (config8.method || this.defaults.method || "get").toLowerCase();
-    let contextHeaders;
-    contextHeaders = headers && utils_default.merge(
+    let contextHeaders = headers && utils_default.merge(
       headers.common,
       headers[config8.method]
     );
-    contextHeaders && utils_default.forEach(
+    headers && utils_default.forEach(
       ["delete", "get", "head", "post", "put", "patch", "common"],
       (method) => {
         delete headers[method];
@@ -21013,7 +21151,7 @@ var Axios = class {
     return buildURL(fullPath, config8.params, config8.paramsSerializer);
   }
 };
-utils_default.forEach(["delete", "get", "head", "options"], function forEachMethodNoData2(method) {
+utils_default.forEach(["delete", "get", "head", "options"], function forEachMethodNoData(method) {
   Axios.prototype[method] = function(url3, config8) {
     return this.request(mergeConfig(config8 || {}, {
       method,
@@ -21022,7 +21160,7 @@ utils_default.forEach(["delete", "get", "head", "options"], function forEachMeth
     }));
   };
 });
-utils_default.forEach(["post", "put", "patch"], function forEachMethodWithData2(method) {
+utils_default.forEach(["post", "put", "patch"], function forEachMethodWithData(method) {
   function generateHTTPMethod(isForm) {
     return function httpMethod(url3, data, config8) {
       return this.request(mergeConfig(config8 || {}, {
@@ -21228,6 +21366,7 @@ axios.isAxiosError = isAxiosError;
 axios.mergeConfig = mergeConfig;
 axios.AxiosHeaders = AxiosHeaders_default;
 axios.formToJSON = (thing) => formDataToJSON_default(utils_default.isHTMLForm(thing) ? new FormData(thing) : thing);
+axios.getAdapter = adapters_default.getAdapter;
 axios.HttpStatusCode = HttpStatusCode_default;
 axios.default = axios;
 var axios_default = axios;
@@ -21248,6 +21387,7 @@ var {
   AxiosHeaders: AxiosHeaders2,
   HttpStatusCode: HttpStatusCode2,
   formToJSON,
+  getAdapter,
   mergeConfig: mergeConfig2
 } = axios_default;
 
@@ -21601,9 +21741,7 @@ var getConfig = () => {
       );
       config8[configKey] = validValue;
     } catch (error) {
-      ce(
-        `'${configKey}' name is invalid, it should be either 'OCO_${configKey.toUpperCase()}' or it doesn't exist.`
-      );
+      ce(`Unknown '${configKey}' config option.`);
       ce(
         `Manually fix the '.env' file or global '~/.opencommit' config file.`
       );
@@ -21998,7 +22136,11 @@ var translation3 = i18n[config5?.OCO_LANGUAGE || "en"];
 var IDENTITY = "You are to act as the author of a commit message in git.";
 var INIT_MAIN_PROMPT2 = (language) => ({
   role: import_openai3.ChatCompletionRequestMessageRoleEnum.System,
-  content: `${IDENTITY} Your mission is to create clean and comprehensive commit messages as per the conventional commit convention and explain WHAT were the changes and mainly WHY the changes were done. I'll send you an output of 'git diff --staged' command, and you are to convert it into a commit message.
+  content: `${IDENTITY} Your mission is to create clean and comprehensive commit messages as per the conventional commit convention and explain WHAT were the changes and mainly WHY the changes were done. 
+  
+     Create only one line comment. Do not specify filename where the commit was added.   
+  
+     I'll send you an output of 'git diff --staged' command, and you are to convert it into a commit message.
     ${config5?.OCO_EMOJI ? "Use GitMoji convention to preface the commit." : "Do not preface the commit with anything."}
     ${config5?.OCO_DESCRIPTION ? `Add a short description of WHY the changes are done after the commit message. Don't start it with "This commit", just describe the changes.` : "Don't add any descriptions to the commit, only commit message."}
     Use the present tense. Lines must not be longer than 74 characters. Use ${language} for the commit message.`
